@@ -2,12 +2,46 @@ import json
 from serpwow.google_search_results import GoogleSearchResults
 import search_res_found as srf
 import choice_vote_aggr as cva
+from urllib.parse import urlparse
+from itertools import chain
 
 MY_SERPWOW_API_KEY = "3E571B595491441CA1326446856073E5"
 
 
 def object_decoder(list_json, voter_engine):
     return [srf.SearchResultFound(json_obj, voter_engine) for json_obj in list_json]
+
+
+def common_data(list1, list2):
+    """
+    to check if two lists have at-least one element common using traversal of list
+    :return: boolean
+    """
+    result = False
+
+    # traverse in the 1st list
+    for x in list1:
+
+        # traverse in the 2nd list
+        for y in list2:
+
+            # if one common
+            if x == y:
+                result = True
+                return result
+
+    return result
+
+
+def obtain_domain(url):
+    parsed_uri = urlparse(url)
+    result = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
+    return result
+
+
+def flatten_2d_skip_none(lst):
+    snippets = [item.snippet_matched for item in lst if item.snippet_matched is not None]
+    return list(chain.from_iterable(snippets))
 
 
 def intr(com_res):
@@ -20,11 +54,20 @@ def intr(com_res):
         for el in sub:
             flag = False
             for _sub in com_res:
-                if el.link not in [item.link for item in _sub]:
+                """
+                predicate
+                """
+                if (el.link in [item.link for item in _sub]) \
+                        or (el.title in [item.title for item in _sub]) \
+                        or (el.domain in [item.domain for item in _sub]) \
+                        or (el.snippet_matched is not None
+                            and common_data(el.snippet_matched, flatten_2d_skip_none(_sub))) \
+                        or (el.domain is None and (obtain_domain(el.link) in [obtain_domain(item.link)
+                                                                              for item in _sub])):
+                    flag = True
+                else:
                     flag = False
                     break
-                else:
-                    flag = True
             if flag:
                 intr_res.append(el)
     return intr_res
@@ -46,7 +89,7 @@ def make_preferences_by_search_engines(input_map):
     """
     for k, v in input_map.items():
         # To return a new list, use the sorted() built-in function...
-        input_map[k] = sorted(input_map[k], key=lambda x: x.position, reverse=False)
+        input_map[k] = set(sorted(input_map[k], key=lambda x: x.position, reverse=False))
     return input_map
 
 
@@ -58,7 +101,7 @@ def populate_candidates(input_map):
     candidates = set()
     for k, lst in input_map.items():
         for el in lst:
-            candidates.add(el.link)
+            candidates.add(obtain_domain(el.link))
     return candidates
 
 
@@ -73,16 +116,22 @@ def populate_preferences(input_map):
         for el in lst:
             # eliminate duplicates with preserving order
             if el.link not in sublist:
-                sublist.append(el.link)
-        preferences.append(sublist)
+                sublist.append(obtain_domain(el.link))
+        preferences.append(f7(sublist))
     return preferences
+
+
+def f7(seq):
+    seen = set()
+    seen_add = seen.add
+    return [x for x in seq if not (x in seen or seen_add(x))]
 
 
 def populate_search_results():
     query = input("WRITE YOUR SEARCH QUERY:")
     search_params = {"q": query, "location": "Austin, Texas"}
     # search_engines = ["yandex", "google"]
-    search_engines = ["yandex", "google", "bing", "naver"]
+    search_engines = ["yandex", "google", "bing"]
     searcher = GoogleSearchResults(MY_SERPWOW_API_KEY)
 
     common_result = []  # 2d
@@ -111,7 +160,8 @@ if __name__ == '__main__':
 
     print("=" * 100)
     intr_res = intr(common_result)
-    print([obj.pretty_print() for obj in intr_res])
+    assert intr_res != []
+    [obj.pretty_print() for obj in intr_res]
 
     res_map = group_by_search_engine(intr_res)
     prefs_groups = make_preferences_by_search_engines(res_map)
@@ -125,20 +175,3 @@ if __name__ == '__main__':
     aggr.borda()
     print("\n\nCONDORCET METHOD: ")
     aggr.condorcet_pairwise_comparison()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
